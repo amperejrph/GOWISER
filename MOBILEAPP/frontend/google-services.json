@@ -1,21 +1,21 @@
 {
   "project_info": {
-    "project_number": "654559369741",
-    "project_id": "sync-e0f02",
-    "storage_bucket": "sync-e0f02.firebasestorage.app"
+    "project_number": "385976576868",
+    "project_id": "gowiser-ec04e",
+    "storage_bucket": "gowiser-ec04e.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:654559369741:android:0d182c8e088743d5945344",
+        "mobilesdk_app_id": "1:385976576868:android:95e10db4c9fdc9764b2871",
         "android_client_info": {
-          "package_name": "com.atss.sync"
+          "package_name": "com.gowiser.sync"
         }
       },
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyDyPkBNC_ORYCn-Dt3TANMp2jYWnwGk9-M"
+          "current_key": "AIzaSyCBwUOpnJqqkzciAXh1bfLHyWw_qSn6L5A"
         }
       ],
       "services": {

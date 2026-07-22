@@ -115,8 +115,7 @@ import ReleaseNotes from './ReleaseNotes';
 import { CustomerDataProvider } from '../contexts/CustomerDataContext';
 import { settingsColorPaletteService, ColorPalette } from '../services/settingsColorPaletteService';
 import { usePushNotifications } from '../hooks/usePushNotifications';
-// Technician live-location tracking disabled (feeds the LiveMonitor widget). Re-enable both lines to turn it back on.
-// import { useLocationTracking } from '../hooks/useLocationTracking';
+import { useLocationTracking } from '../hooks/useLocationTracking';
 import ErrorBoundary from '../components/ErrorBoundary';
 
 interface DashboardProps {
@@ -125,8 +124,7 @@ interface DashboardProps {
 
 const Dashboard: React.FC<DashboardProps> = ({ onLogout }) => {
     usePushNotifications();
-    // Technician live-location tracking disabled (feeds the LiveMonitor widget). Re-enable both lines to turn it back on.
-    // useLocationTracking();
+    useLocationTracking();
     const [userData, setUserData] = useState<any>(null);
     const [activeSection, setActiveSection] = useState('dashboard');
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
