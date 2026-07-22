@@ -20,18 +20,18 @@ class XenditPaymentController extends Controller
     {
         $this->xenditApiKey = (string) (config('services.xendit.api_key') ?: env('XENDIT_API_KEY', ''));
         $this->xenditCallbackToken = (string) (config('services.xendit.callback_token') ?: env('XENDIT_CALLBACK_TOKEN', ''));
-        
+
         // Fallback for production environments where config cache might be returning null
         // and we cannot easily run `php artisan config:clear`
         if (empty($this->xenditApiKey) || empty($this->xenditCallbackToken)) {
             $envPath = base_path('.env');
             if (file_exists($envPath)) {
                 $envContent = file_get_contents($envPath);
-                
+
                 if (empty($this->xenditApiKey) && preg_match('/^XENDIT_API_KEY=(.*)$/m', $envContent, $matches)) {
                     $this->xenditApiKey = trim($matches[1], "\"' \t\n\r\0\x0B");
                 }
-                
+
                 if (empty($this->xenditCallbackToken) && preg_match('/^XENDIT_CALLBACK_TOKEN=(.*)$/m', $envContent, $matches)) {
                     $this->xenditCallbackToken = trim($matches[1], "\"' \t\n\r\0\x0B");
                 }
@@ -270,14 +270,14 @@ class XenditPaymentController extends Controller
     {
         // Get callback token from request
         $incomingToken = '';
-        
+
         // Try multiple methods to get the token
         $incomingToken = $request->header('X-Callback-Token');
-        
+
         if (empty($incomingToken) && isset($_SERVER['HTTP_X_CALLBACK_TOKEN'])) {
             $incomingToken = $_SERVER['HTTP_X_CALLBACK_TOKEN'];
         }
-        
+
         if (empty($incomingToken)) {
             $headers = array_change_key_case($request->headers->all(), CASE_LOWER);
             $incomingToken = $headers['x-callback-token'][0] ?? '';
@@ -314,7 +314,7 @@ class XenditPaymentController extends Controller
         try {
             $payload = $request->all();
             $rawPayload = json_encode($payload);
-            
+
             $ref = $payload['external_id'] ?? $payload['requestReferenceNumber'] ?? '';
             $status = strtoupper($payload['status'] ?? '');
 
