@@ -43,3 +43,4 @@ yarn-error.log*
 
 # Laravel specific
 storage/*.key
+MOBILEAPP/frontend/google-services.json
