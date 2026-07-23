@@ -9,6 +9,15 @@ export interface InvoiceRecordUI {
     invoiceDateRaw?: string;
     invoiceBalance: number;
     serviceCharge: number;
+    /**
+     * VAT snapshot taken when the invoice was issued, so a later change to the configured rate
+     * cannot reinterpret it. null on invoices predating the snapshot columns — distinct from a
+     * genuine zero, which is why these are nullable rather than defaulted to 0.
+     */
+    vatRate?: number | null;
+    vatBaseAmount?: number | null;
+    netAmount?: number | null;
+    vatAmount?: number | null;
     rebate: number;
     discounts: number;
     staggered: number;
@@ -123,7 +132,14 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
                 dateProcessedRaw: record.received_payment > 0 ? record.updated_at : undefined,
                 processedBy: record.received_payment > 0 ? record.updated_by : undefined,
                 remarks: 'System Generated',
-                vat: 0,
+                // Real VAT snapshot from the invoice. null (not 0) when the invoice
+                // predates the snapshot columns, so the UI can hide the breakdown
+                // instead of showing a misleading zero.
+                vat: Number(record.vat_amount) || 0,
+                vatRate: record.vat_rate === null || record.vat_rate === undefined ? null : Number(record.vat_rate),
+                vatBaseAmount: record.vat_base_amount === null || record.vat_base_amount === undefined ? null : Number(record.vat_base_amount),
+                netAmount: record.net_amount === null || record.net_amount === undefined ? null : Number(record.net_amount),
+                vatAmount: record.vat_amount === null || record.vat_amount === undefined ? null : Number(record.vat_amount),
                 amountDue: (Number(record.total_amount) || 0) - (Number(record.received_payment) || 0),
                 balanceFromPreviousBill: 0,
                 paymentReceived: Number(record.received_payment) || 0,
@@ -250,7 +266,14 @@ export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
                     dateProcessedRaw: record.received_payment > 0 ? record.updated_at : undefined,
                     processedBy: record.received_payment > 0 ? record.updated_by : undefined,
                     remarks: 'System Generated',
-                    vat: 0,
+                    // Real VAT snapshot from the invoice. null (not 0) when the invoice
+                // predates the snapshot columns, so the UI can hide the breakdown
+                // instead of showing a misleading zero.
+                vat: Number(record.vat_amount) || 0,
+                vatRate: record.vat_rate === null || record.vat_rate === undefined ? null : Number(record.vat_rate),
+                vatBaseAmount: record.vat_base_amount === null || record.vat_base_amount === undefined ? null : Number(record.vat_base_amount),
+                netAmount: record.net_amount === null || record.net_amount === undefined ? null : Number(record.net_amount),
+                vatAmount: record.vat_amount === null || record.vat_amount === undefined ? null : Number(record.vat_amount),
                     amountDue: (Number(record.total_amount) || 0) - (Number(record.received_payment) || 0),
                     balanceFromPreviousBill: 0,
                     paymentReceived: Number(record.received_payment) || 0,

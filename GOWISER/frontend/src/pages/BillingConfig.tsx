@@ -12,6 +12,12 @@ interface BillingConfigData {
   disconnection_notice: number;
   disconnection_fee: number;
   pullout_day: number;
+  /**
+   * VAT rate as a fraction (0.12 = 12%), matching how it is stored and how every calculation
+   * uses it. The UI converts to and from a percentage purely for display, so the number an
+   * operator types ("12") is never what reaches the API.
+   */
+  vat_rate: number;
   created_at?: string;
   updated_at?: string;
   updated_by?: string;
@@ -49,7 +55,8 @@ const BillingConfig: React.FC = () => {
     overdue_day: 0,
     disconnection_notice: 0,
     disconnection_fee: 0,
-    pullout_day: 0
+    pullout_day: 0,
+    vat_rate: 0.12
   });
   const [loadingBillingConfig, setLoadingBillingConfig] = useState<boolean>(false);
 
@@ -270,6 +277,11 @@ const BillingConfig: React.FC = () => {
       if (billingConfigInput.disconnection_fee !== undefined && billingConfigInput.disconnection_fee !== null) {
         payload.disconnection_fee = billingConfigInput.disconnection_fee;
       }
+      // Sent as the stored fraction. The input below captures a percentage and divides by 100,
+      // so the API only ever receives the unit it stores.
+      if (billingConfigInput.vat_rate !== undefined && billingConfigInput.vat_rate !== null) {
+        payload.vat_rate = billingConfigInput.vat_rate;
+      }
       if (billingConfigInput.pullout_day !== undefined && billingConfigInput.pullout_day !== null) {
         payload.pullout_day = billingConfigInput.pullout_day;
       }
@@ -333,7 +345,8 @@ const BillingConfig: React.FC = () => {
             overdue_day: 0,
             disconnection_notice: 0,
             disconnection_fee: 0,
-            pullout_day: 0
+            pullout_day: 0,
+            vat_rate: 0.12
           });
           setIsEditingBillingConfig(false);
         } catch (error: any) {
@@ -365,7 +378,8 @@ const BillingConfig: React.FC = () => {
         overdue_day: 0,
         disconnection_notice: 0,
         disconnection_fee: 0,
-        pullout_day: 0
+        pullout_day: 0,
+        vat_rate: 0.12
       });
     }
     setIsEditingBillingConfig(false);
@@ -386,6 +400,19 @@ const BillingConfig: React.FC = () => {
         setBillingConfigInput(prev => ({
           ...prev,
           [field]: floatValue
+        }));
+      }
+      return;
+    }
+
+    // The operator types a percentage; we store a fraction. Capped at 100% because the API
+    // rejects anything above 1 and a higher value is always a typo rather than an intent.
+    if (field === 'vat_rate') {
+      const percent = parseFloat(value);
+      if (!isNaN(percent) && percent >= 0 && percent <= 100) {
+        setBillingConfigInput(prev => ({
+          ...prev,
+          vat_rate: Math.round((percent / 100) * 10000) / 10000
         }));
       }
       return;
@@ -641,6 +668,15 @@ const BillingConfig: React.FC = () => {
                     <p className={`font-medium text-lg ${isDarkMode ? 'text-white' : 'text-gray-900'
                       }`}>{billingConfig.pullout_day}</p>
                   </div>
+                  <div className={`p-4 rounded ${isDarkMode ? 'bg-gray-800' : 'bg-gray-100'
+                    }`}>
+                    <p className={`text-xs mb-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'
+                      }`}>VAT Rate</p>
+                    <p className={`font-medium text-lg ${isDarkMode ? 'text-white' : 'text-gray-900'
+                      }`}>
+                      {(Number(billingConfig.vat_rate ?? 0.12) * 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%
+                    </p>
+                  </div>
                 </div>
 
                 <div className="mt-4 pt-4 border-t border-gray-700/30 flex flex-wrap gap-x-6 gap-y-1">
@@ -845,6 +881,37 @@ const BillingConfig: React.FC = () => {
                     <p className={`text-xs mt-2 ${isDarkMode ? 'text-gray-500' : 'text-gray-600'
                       }`}>
                       Fee to be charged upon service disconnection
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'
+                      }`}>
+                      VAT Rate
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="0.01"
+                        // Displayed as a percentage; stored as a fraction.
+                        value={Number(((billingConfigInput.vat_rate ?? 0) * 100).toFixed(2))}
+                        onChange={(e) => handleBillingConfigInputChange('vat_rate', e.target.value)}
+                        onFocus={(e) => e.target.select()}
+                        className={`w-full pl-4 pr-8 py-2 border rounded focus:outline-none focus:border-orange-500 ${isDarkMode
+                          ? 'bg-gray-800 border-gray-700 text-white'
+                          : 'bg-white border-gray-300 text-gray-900'
+                          }`}
+                        min="0"
+                        max="100"
+                        disabled={loadingBillingConfig}
+                      />
+                      <span className={`absolute right-3 top-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>%</span>
+                    </div>
+                    <p className={`text-xs mt-2 ${isDarkMode ? 'text-gray-500' : 'text-gray-600'
+                      }`}>
+                      Plan prices are VAT-inclusive, so this is the rate extracted from the plan
+                      amount &mdash; not added on top. Changing it affects future bills only;
+                      invoices already issued keep the rate they were charged at.
                     </p>
                   </div>
 

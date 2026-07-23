@@ -29,7 +29,13 @@ class Invoice extends Model
         'transaction_id',
         'created_by',
         'updated_by',
-        'organization_id'
+        'organization_id',
+        // VAT snapshot, written once at issue time and never recomputed.
+        // Invariant: net_amount + vat_amount == vat_base_amount.
+        'vat_rate',
+        'vat_base_amount',
+        'net_amount',
+        'vat_amount'
     ];
 
     protected $casts = [
@@ -44,7 +50,11 @@ class Invoice extends Model
         'discounts' => 'decimal:2',
         'staggered' => 'decimal:2',
         'total_amount' => 'decimal:2',
-        'received_payment' => 'decimal:2'
+        'received_payment' => 'decimal:2',
+        'vat_rate' => 'decimal:4',
+        'vat_base_amount' => 'decimal:2',
+        'net_amount' => 'decimal:2',
+        'vat_amount' => 'decimal:2'
     ];
 
     protected $with = [];

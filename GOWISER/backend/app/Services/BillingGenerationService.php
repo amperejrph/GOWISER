@@ -13,10 +13,16 @@ use Illuminate\Support\Facades\Log;
 
 class BillingGenerationService
 {
-    protected const VAT_RATE = 0.12;
+    protected VatCalculator $vatCalculator;
+
     protected const DAYS_IN_MONTH = 30;
     protected const DAYS_UNTIL_DUE = 7;
     protected const DAYS_UNTIL_DC_NOTICE = 4;
+
+    public function __construct(VatCalculator $vatCalculator)
+    {
+        $this->vatCalculator = $vatCalculator;
+    }
 
     public function generateInvoicesForBillingDay(int $billingDay, int $userId): array
     {
@@ -182,13 +188,16 @@ class BillingGenerationService
                 $statementDate
             );
 
-            $monthlyFeeGross = $prorateAmount / (1 + self::VAT_RATE);
-            $vat = $monthlyFeeGross * self::VAT_RATE;
-            $monthlyServiceFee = $prorateAmount - $vat;
+            // Plan prices are VAT-inclusive: the service charge is split into net + VAT rather
+            // than having VAT added on top. Rate comes from billing_config.
+            $vatBreakdown = $this->vatCalculator->breakdown($prorateAmount, $account->organization_id);
+            $monthlyServiceFee = $vatBreakdown['net'];
+            $vat = $vatBreakdown['vat'];
 
             $othersAndBasicCharges = $this->calculateOthersAndBasicCharges($account);
 
-            $amountDue = $monthlyServiceFee + $vat + $othersAndBasicCharges;
+            // net + VAT is by definition the VAT-inclusive service charge.
+            $amountDue = $prorateAmount + $othersAndBasicCharges;
             $totalAmountDue = $account->account_balance + $amountDue;
 
             $statement = StatementOfAccount::create([

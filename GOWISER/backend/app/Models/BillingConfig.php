@@ -22,6 +22,9 @@ class BillingConfig extends Model
         'disconnection_fee',
         'pullout_offset',
         'pullout_day',
+        // Stored as a fraction (0.1200 = 12%), matching the unit every calculation uses.
+        // The admin UI converts to and from a percentage for display.
+        'vat_rate',
         'updated_by',
         'created_by'
     ];
@@ -35,6 +38,7 @@ class BillingConfig extends Model
         'disconnection_fee' => 'decimal:2',
         'pullout_offset' => 'integer',
         'pullout_day' => 'integer',
+        'vat_rate' => 'decimal:4',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

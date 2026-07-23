@@ -60,6 +60,9 @@ class BillingConfigController extends Controller
                 'disconnection_notice' => 'nullable|integer|min:0',
                 'disconnection_fee' => 'nullable|numeric|min:0',
                 'pullout_day' => 'nullable|integer|min:0',
+                // Fraction, not a percentage: 0.12 means 12%. Bounded at 1 so a value entered
+                // as "12" (meaning 12%) is rejected here rather than billing 1200% VAT.
+                'vat_rate' => 'nullable|numeric|min:0|max:1',
                 'user_email' => 'nullable|email|max:255'
             ]);
 
@@ -86,6 +89,9 @@ class BillingConfigController extends Controller
                 'disconnection_notice' => $request->input('disconnection_notice', 0),
                 'disconnection_fee' => $request->input('disconnection_fee', 0.00),
                 'pullout_day' => $request->input('pullout_day', 0),
+                // Defaults to the historical hard-coded rate so a newly created config bills
+                // exactly as the system did before the rate became configurable.
+                'vat_rate' => $request->input('vat_rate', \App\Services\VatCalculator::FALLBACK_RATE),
                 'updated_by' => $userEmail,
                 'created_by' => $userEmail
             ]);
@@ -130,6 +136,9 @@ class BillingConfigController extends Controller
                 'disconnection_notice' => 'nullable|integer|min:0',
                 'disconnection_fee' => 'nullable|numeric|min:0',
                 'pullout_day' => 'nullable|integer|min:0',
+                // Fraction, not a percentage: 0.12 means 12%. Bounded at 1 so a value entered
+                // as "12" (meaning 12%) is rejected here rather than billing 1200% VAT.
+                'vat_rate' => 'nullable|numeric|min:0|max:1',
                 'user_email' => 'nullable|email|max:255'
             ]);
 
@@ -156,8 +165,14 @@ class BillingConfigController extends Controller
                 'disconnection_notice' => $request->input('disconnection_notice', $config->disconnection_notice),
                 'disconnection_fee' => $request->input('disconnection_fee', $config->disconnection_fee),
                 'pullout_day' => $request->input('pullout_day', $config->pullout_day),
+                'vat_rate' => $request->input('vat_rate', $config->vat_rate),
                 'updated_by' => $userEmail
             ]);
+
+            // The calculator memoises the rate per organization for the life of the request and
+            // is a singleton, so a save must invalidate it - otherwise a billing run triggered
+            // in the same process would keep using the previous rate.
+            app(\App\Services\VatCalculator::class)->flush();
 
             return response()->json([
                 'success' => true,

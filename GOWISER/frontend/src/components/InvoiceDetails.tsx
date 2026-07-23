@@ -103,6 +103,15 @@ interface InvoiceRecord {
   processedBy?: string;
   remarks?: string;
   vat?: number;
+  /**
+   * VAT snapshot taken when the invoice was issued. Absent on invoices predating the snapshot
+   * columns, which is why the UI treats "no netAmount" as "breakdown unavailable" rather than
+   * recomputing a figure that was never charged.
+   */
+  vatRate?: number | null;
+  vatBaseAmount?: number | null;
+  netAmount?: number | null;
+  vatAmount?: number | null;
   amountDue?: number;
   balanceFromPreviousBill?: number;
   paymentReceived?: number;
@@ -441,6 +450,37 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceRecord, onViewCu
                 {invoiceRecord.invoiceStatus || 'Unpaid'}
               </span>
             </div>
+
+            {/*
+              VAT breakdown of the recurring service charge, as snapshotted at issue time.
+              Rendered only when the invoice actually carries a snapshot: invoices issued before
+              the snapshot columns existed have no recorded VAT split, and showing a recomputed
+              one would misrepresent what the customer was charged.
+            */}
+            {invoiceRecord.netAmount !== null && invoiceRecord.netAmount !== undefined && (
+              <>
+                <div className="flex justify-between items-center py-2">
+                  <span className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>Service Charge (Net of VAT)</span>
+                  <span className={isDarkMode ? 'text-white' : 'text-gray-900'}>
+                    ₱{Number(invoiceRecord.netAmount || 0).toFixed(2)}
+                  </span>
+                </div>
+
+                <div className="flex justify-between items-center py-2">
+                  <span className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>
+                    VAT
+                    {invoiceRecord.vatRate !== null && invoiceRecord.vatRate !== undefined && (
+                      <span className={`ml-1 text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                        ({(Number(invoiceRecord.vatRate) * 100).toFixed(2).replace(/\.00$/, '')}%)
+                      </span>
+                    )}
+                  </span>
+                  <span className={isDarkMode ? 'text-white' : 'text-gray-900'}>
+                    ₱{Number(invoiceRecord.vatAmount || 0).toFixed(2)}
+                  </span>
+                </div>
+              </>
+            )}
 
             <div className="flex justify-between items-center py-2">
               <span className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>Service Charge</span>

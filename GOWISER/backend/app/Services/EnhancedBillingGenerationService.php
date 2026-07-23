@@ -59,11 +59,17 @@ use Carbon\Carbon;
  */
 class EnhancedBillingGenerationService
 {
-    protected const VAT_RATE = 0.12;
+    protected VatCalculator $vatCalculator;
+
     protected const DAYS_IN_MONTH = 30;
     protected const DAYS_UNTIL_DUE = 7;
     protected const DAYS_UNTIL_DC_NOTICE = 4;
     protected const END_OF_MONTH_BILLING = 0;
+
+    public function __construct(VatCalculator $vatCalculator)
+    {
+        $this->vatCalculator = $vatCalculator;
+    }
 
     public function generateSOAForBillingDay(int $billingDay, Carbon $generationDate, int $userId): array
     {
@@ -274,9 +280,11 @@ class EnhancedBillingGenerationService
             $dueDate = $adjustedDate->copy()->addDays(self::DAYS_UNTIL_DUE);
 
             $prorateAmount = $this->calculateProrateAmount($account, $plan->price, $adjustedDate);
-            $monthlyFeeGross = $prorateAmount / (1 + self::VAT_RATE);
-            $vat = $monthlyFeeGross * self::VAT_RATE;
-            $monthlyServiceFee = $prorateAmount - $vat;
+            // Plan prices are VAT-inclusive: the service charge is split into net + VAT rather
+            // than having VAT added on top. Rate comes from billing_config.
+            $vatBreakdown = $this->vatCalculator->breakdown($prorateAmount, $account->organization_id);
+            $monthlyServiceFee = $vatBreakdown['net'];
+            $vat = $vatBreakdown['vat'];
 
             $invoiceId = $this->generateInvoiceId($statementDate);
             
@@ -292,7 +300,9 @@ class EnhancedBillingGenerationService
             
             $othersAndBasicCharges = 0;
 
-            $amountDue = $monthlyServiceFee + $vat + $charges['staggered_install_fees'] + $charges['service_fees'] - $charges['rebates'] - $charges['discounts'] - $charges['advanced_payments'];
+            // net + VAT is by definition the VAT-inclusive service charge; using the charge
+            // directly is arithmetically identical and independent of display rounding.
+            $amountDue = $prorateAmount + $charges['staggered_install_fees'] + $charges['service_fees'] - $charges['rebates'] - $charges['discounts'] - $charges['advanced_payments'];
             
             $previousBalance = $this->getPreviousBalance($account, $statementDate);
             $paymentReceived = $charges['payment_received_previous'];

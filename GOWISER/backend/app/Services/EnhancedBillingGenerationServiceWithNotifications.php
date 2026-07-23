@@ -23,15 +23,17 @@ use Carbon\Carbon;
 class EnhancedBillingGenerationServiceWithNotifications
 {
     protected BillingNotificationService $notificationService;
-    protected const VAT_RATE = 0.12;
+    protected VatCalculator $vatCalculator;
+
     protected const DAYS_IN_MONTH = 30;
     protected const DAYS_UNTIL_DUE = 7;
     protected const DAYS_UNTIL_DC_NOTICE = 4;
     protected const END_OF_MONTH_BILLING = 0;
 
-    public function __construct(BillingNotificationService $notificationService)
+    public function __construct(BillingNotificationService $notificationService, VatCalculator $vatCalculator)
     {
         $this->notificationService = $notificationService;
+        $this->vatCalculator = $vatCalculator;
     }
     
     protected function log($level, $message, $context = [])
@@ -338,9 +340,11 @@ class EnhancedBillingGenerationServiceWithNotifications
             $reconProrate = $this->calculateReconnectionProrate($account, $statementDate, $plan->price);
             
             $effectiveProrateAmount = $prorateAmount + $reconProrate['total_prorate'];
-            $monthlyFeeGross = $effectiveProrateAmount / (1 + self::VAT_RATE);
-            $vat = $monthlyFeeGross * self::VAT_RATE;
-            $monthlyServiceFee = $effectiveProrateAmount - $vat;
+            // Plan prices are VAT-inclusive, so the service charge is split into net + VAT
+            // rather than having VAT added on top. The rate now comes from billing_config.
+            $vatBreakdown = $this->vatCalculator->breakdown($effectiveProrateAmount, $account->organization_id);
+            $monthlyServiceFee = $vatBreakdown['net'];
+            $vat = $vatBreakdown['vat'];
 
             // Use statement ID as the reference for charges
             $charges = $this->calculateChargesAndDeductions(
@@ -355,8 +359,12 @@ class EnhancedBillingGenerationServiceWithNotifications
             
             $othersAndBasicCharges = 0;
 
-            $amountDue = $monthlyServiceFee + $vat + $charges['staggered_install_fees'] + $charges['service_fees'] - $charges['rebates'] - $charges['discounts'] - $charges['advanced_payments'];
-            
+            // net + VAT is by definition the VAT-inclusive service charge, so the charge itself
+            // is the base. Using it directly keeps the total independent of how the split is
+            // rounded for display, and is arithmetically identical to the previous
+            // ($monthlyServiceFee + $vat) form.
+            $amountDue = $effectiveProrateAmount + $charges['staggered_install_fees'] + $charges['service_fees'] - $charges['rebates'] - $charges['discounts'] - $charges['advanced_payments'];
+
             $previousBalance = $this->getPreviousBalance($account, $statementDate);
             $paymentReceived = $charges['payment_received_previous'];
             $remainingBalance = $previousBalance - $paymentReceived;
@@ -519,7 +527,16 @@ class EnhancedBillingGenerationServiceWithNotifications
                 }
             }
 
-            $invoice->update([
+            // VAT snapshot. Written once, at issue time, and never recomputed: a later change
+            // to the configured rate must not reinterpret what this invoice charged. The split
+            // is derived from the VAT-inclusive service charge, which is the same base the SOA
+            // for this cycle uses, so the two documents always agree.
+            $invoiceVat = $this->vatCalculator->invoiceColumns(
+                $effectiveProrateAmount,
+                $account->organization_id
+            );
+
+            $invoice->update(array_merge([
                 'invoice_balance' => round($effectiveProrateAmount, 2),
                 'others_and_basic_charges' => round($othersBasicCharges, 2),
                 'service_charge' => round($charges['service_fees'], 2),
@@ -530,7 +547,7 @@ class EnhancedBillingGenerationServiceWithNotifications
                 'status' => $totalAmount <= 0 ? 'Paid' : 'Unpaid',
                 'pro_rate' => round($reconProrate['total_prorate'], 2),
                 'pro_rate_start' => $proRateStartInvoice
-            ]);
+            ], $invoiceVat));
 
             $appliedDiscounts = $charges['discounts'];
             
