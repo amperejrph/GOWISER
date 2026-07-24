@@ -812,6 +812,43 @@ class ServiceOrderController extends Controller
                 $updateData['updated_by_user'] = $request->updated_by_user;
             }
 
+            // ── Technician availability guard (mirrors Api\ServiceOrderApiController) ──
+            // Reassignment resets both timers; leaving "In Progress" (support Failed,
+            // or any visit_status other than In Progress) stamps an end_time on a
+            // started job so the technician is not left flagged as busy.
+            // start_time/end_time are Asia/Manila wall-clock (matching the mobile
+            // timer), so stamp Manila time — bare now() is UTC here.
+            $assignedEmailChanged = array_key_exists('assigned_email', $updateData)
+                && (string) $updateData['assigned_email'] !== (string) ($order->assigned_email ?? '');
+
+            if ($assignedEmailChanged) {
+                $updateData['start_time'] = null;
+                $updateData['end_time']   = null;
+            } else {
+                $effectiveSupport = strtolower(trim((string) ($request->has('support_status')
+                    ? $request->input('support_status')
+                    : ($order->support_status ?? ''))));
+                $effectiveVisit = strtolower(trim((string) ($request->has('visit_status')
+                    ? $request->input('visit_status')
+                    : ($order->visit_status ?? ''))));
+
+                $visitInProgress = in_array($effectiveVisit, ['in progress', 'in-progress', 'inprogress'], true);
+                $leftInProgress  = ($effectiveSupport === 'failed')
+                    || ($effectiveVisit !== '' && !$visitInProgress);
+
+                $startTimePresent = array_key_exists('start_time', $updateData)
+                    ? !empty($updateData['start_time'])
+                    : !empty($order->start_time);
+                // A payload that mentions end_time (a real timestamp OR an explicit
+                // null to (re)open the timer) is authoritative — never override it.
+                $callerManagesEndTime = array_key_exists('end_time', $updateData);
+
+                if ($leftInProgress && $startTimePresent && !$callerManagesEndTime && empty($order->end_time)) {
+                    $updateData['end_time'] = \Carbon\Carbon::now('Asia/Manila')->format('Y-m-d H:i:s');
+                }
+            }
+            // ──────────────────────────────────────────────────────────────────────
+
             $updateData['updated_at'] = now();
 
             if (!empty($updateData)) {

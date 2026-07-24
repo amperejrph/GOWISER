@@ -103,39 +103,6 @@ class ProcessAutoDisconnectPullout extends Command
                 }
 
                 $this->newLine();
-
-                // Process Grace Period Charges (7-day delayed charging for DC'd accounts)
-                $this->info("─────────────────────────────────────────────────────────");
-                $this->info("[PROCESS] Processing Grace Period Charges...");
-                $this->info("─────────────────────────────────────────────────────────");
-
-                $graceResult = $this->autoDisconnectService->processGracePeriodCharge();
-
-                if ($graceResult['success']) {
-                    $this->newLine();
-                    $this->info("[SUCCESS] Grace Period Charging Complete:");
-                    $this->table(
-                        ['Metric', 'Count'],
-                        [
-                            ['Charged', $graceResult['charged']],
-                            ['Skipped', $graceResult['skipped']],
-                            ['Duration', $graceResult['duration'] . 's']
-                        ]
-                    );
-
-                    if (!empty($graceResult['errors'])) {
-                        $this->newLine();
-                        $this->warn("[WARNING] Errors encountered:");
-                        foreach ($graceResult['errors'] as $error) {
-                            $this->line("   - " . $error);
-                        }
-                    }
-                } else {
-                    $this->error("[FAILED] Grace Period Charging Failed: " . ($graceResult['error'] ?? 'Unknown error'));
-                    return 1;
-                }
-
-                $this->newLine();
             }
 
             // Process Auto Pullout

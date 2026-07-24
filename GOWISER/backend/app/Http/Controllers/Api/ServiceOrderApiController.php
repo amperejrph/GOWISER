@@ -804,6 +804,48 @@ class ServiceOrderApiController extends Controller
                 }
             }
 
+            // ── Technician availability guard ─────────────────────────────────
+            // Keep start_time/end_time consistent so a technician is never left
+            // flagged as "busy" on a job that has effectively ended.
+            //   • Reassigning the order (assigned_email changed) resets both timers
+            //     — the new technician starts fresh.
+            //   • Once a STARTED job leaves the "In Progress" state (support_status
+            //     Failed, or any visit_status other than In Progress) it must carry
+            //     an end_time.
+            // start_time/end_time are stored as Asia/Manila wall-clock to match the
+            // mobile timer, so we stamp Manila time here — bare now() is UTC here.
+            $assignedEmailChanged = array_key_exists('assigned_email', $data)
+                && (string) $data['assigned_email'] !== (string) ($serviceOrder->assigned_email ?? '');
+
+            if ($assignedEmailChanged) {
+                $data['start_time'] = null;
+                $data['end_time']   = null;
+            } else {
+                $effectiveSupport = strtolower(trim((string) ($request->has('support_status')
+                    ? $request->input('support_status')
+                    : ($serviceOrder->support_status ?? ''))));
+                $effectiveVisit = strtolower(trim((string) ($request->has('visit_status')
+                    ? $request->input('visit_status')
+                    : ($serviceOrder->visit_status ?? ''))));
+
+                $visitInProgress = in_array($effectiveVisit, ['in progress', 'in-progress', 'inprogress'], true);
+                $leftInProgress  = ($effectiveSupport === 'failed')
+                    || ($effectiveVisit !== '' && !$visitInProgress);
+
+                $startTimePresent = array_key_exists('start_time', $data)
+                    ? !empty($data['start_time'])
+                    : !empty($serviceOrder->start_time);
+                // A payload that mentions end_time (a real timestamp OR an explicit
+                // null to (re)open the timer, as the mobile start/restart does) is
+                // authoritative — never override it.
+                $callerManagesEndTime = array_key_exists('end_time', $data);
+
+                if ($leftInProgress && $startTimePresent && !$callerManagesEndTime && empty($serviceOrder->end_time)) {
+                    $data['end_time'] = \Carbon\Carbon::now('Asia/Manila')->format('Y-m-d H:i:s');
+                }
+            }
+            // ──────────────────────────────────────────────────────────────────
+
             DB::table('service_orders')->where('id', $id)->update($data);
 
             if (isset($data['assigned_email']) && $data['assigned_email'] !== ($serviceOrder->assigned_email ?? null)) {

@@ -23,17 +23,15 @@ use Carbon\Carbon;
 class EnhancedBillingGenerationServiceWithNotifications
 {
     protected BillingNotificationService $notificationService;
-    protected VatCalculator $vatCalculator;
-
+    protected const VAT_RATE = 0.12;
     protected const DAYS_IN_MONTH = 30;
     protected const DAYS_UNTIL_DUE = 7;
     protected const DAYS_UNTIL_DC_NOTICE = 4;
     protected const END_OF_MONTH_BILLING = 0;
 
-    public function __construct(BillingNotificationService $notificationService, VatCalculator $vatCalculator)
+    public function __construct(BillingNotificationService $notificationService)
     {
         $this->notificationService = $notificationService;
-        $this->vatCalculator = $vatCalculator;
     }
     
     protected function log($level, $message, $context = [])
@@ -340,31 +338,30 @@ class EnhancedBillingGenerationServiceWithNotifications
             $reconProrate = $this->calculateReconnectionProrate($account, $statementDate, $plan->price);
             
             $effectiveProrateAmount = $prorateAmount + $reconProrate['total_prorate'];
-            // Plan prices are VAT-inclusive, so the service charge is split into net + VAT
-            // rather than having VAT added on top. The rate now comes from billing_config.
-            $vatBreakdown = $this->vatCalculator->breakdown($effectiveProrateAmount, $account->organization_id);
-            $monthlyServiceFee = $vatBreakdown['net'];
-            $vat = $vatBreakdown['vat'];
+            $monthlyFeeGross = $effectiveProrateAmount / (1 + self::VAT_RATE);
+            $vat = $monthlyFeeGross * self::VAT_RATE;
+            $monthlyServiceFee = $effectiveProrateAmount - $vat;
 
-            // Use statement ID as the reference for charges
+            // Use statement ID as the reference for charges.
+            // includeDiscounts = true so the SOA REFLECTS the discount (amount_due
+            // and the discounts column), matching the invoice. updateDiscountStatus
+            // stays false: calculateDiscounts() is read-only anyway, and the discount
+            // is only consumed by markDiscountsAsUsed() in the invoice path — so the
+            // SOA displays it without spending it.
             $charges = $this->calculateChargesAndDeductions(
-                $account, 
-                $statementDate, 
-                $userId, 
+                $account,
+                $statementDate,
+                $userId,
                 (string)$statement->id,
                 $plan->price,
                 false,
-                false
+                true
             );
             
             $othersAndBasicCharges = 0;
 
-            // net + VAT is by definition the VAT-inclusive service charge, so the charge itself
-            // is the base. Using it directly keeps the total independent of how the split is
-            // rounded for display, and is arithmetically identical to the previous
-            // ($monthlyServiceFee + $vat) form.
-            $amountDue = $effectiveProrateAmount + $charges['staggered_install_fees'] + $charges['service_fees'] - $charges['rebates'] - $charges['discounts'] - $charges['advanced_payments'];
-
+            $amountDue = $monthlyServiceFee + $vat + $charges['staggered_install_fees'] + $charges['service_fees'] - $charges['rebates'] - $charges['discounts'] - $charges['advanced_payments'];
+            
             $previousBalance = $this->getPreviousBalance($account, $statementDate);
             $paymentReceived = $charges['payment_received_previous'];
             $remainingBalance = $previousBalance - $paymentReceived;
@@ -527,16 +524,7 @@ class EnhancedBillingGenerationServiceWithNotifications
                 }
             }
 
-            // VAT snapshot. Written once, at issue time, and never recomputed: a later change
-            // to the configured rate must not reinterpret what this invoice charged. The split
-            // is derived from the VAT-inclusive service charge, which is the same base the SOA
-            // for this cycle uses, so the two documents always agree.
-            $invoiceVat = $this->vatCalculator->invoiceColumns(
-                $effectiveProrateAmount,
-                $account->organization_id
-            );
-
-            $invoice->update(array_merge([
+            $invoice->update([
                 'invoice_balance' => round($effectiveProrateAmount, 2),
                 'others_and_basic_charges' => round($othersBasicCharges, 2),
                 'service_charge' => round($charges['service_fees'], 2),
@@ -547,7 +535,7 @@ class EnhancedBillingGenerationServiceWithNotifications
                 'status' => $totalAmount <= 0 ? 'Paid' : 'Unpaid',
                 'pro_rate' => round($reconProrate['total_prorate'], 2),
                 'pro_rate_start' => $proRateStartInvoice
-            ], $invoiceVat));
+            ]);
 
             $appliedDiscounts = $charges['discounts'];
             
@@ -740,39 +728,65 @@ class EnhancedBillingGenerationServiceWithNotifications
         $totalProrate = 0.00;
         $proRateStart = null;
         $logIds = [];
+        $advanceGenOffset = $this->getAdvanceGenerationDay();
+
+        // Calculate cycle bounds relative to the current generation date
+        $currentCycleEnd = $this->calculateAdjustedBillingDate($account, $generationDate);
+        $currentCycleStart = $currentCycleEnd->copy()->subMonth();
+
+        $totalDaysInCycle = $currentCycleStart->diffInDays($currentCycleEnd);
+        if ($totalDaysInCycle <= 0) {
+            $totalDaysInCycle = self::DAYS_IN_MONTH;
+        }
+
+        // Calculate advance generation cutoff date for the current cycle (e.g. 23rd if cycleEnd is 30th and offset is 7)
+        $advanceGenCutoff = $currentCycleEnd->copy()->subDays($advanceGenOffset > 0 ? $advanceGenOffset : self::DAYS_UNTIL_DUE);
 
         foreach ($unbilledLogs as $log) {
-            $reconDate = Carbon::parse($log->created_at);
-            
-            $cycleEnd = $this->calculateAdjustedBillingDate($account, $reconDate);
-            $cycleStart = $cycleEnd->copy()->subMonth();
+            $reconDate = Carbon::parse($log->created_at)->startOfDay();
 
-            $totalDaysInCycle = $cycleStart->diffInDays($cycleEnd);
-            if ($totalDaysInCycle <= 0) {
-                $totalDaysInCycle = self::DAYS_IN_MONTH;
-            }
+            if ($reconDate->lt($currentCycleStart)) {
+                // Log is from a past billing cycle -> mark as cleared/processed so it doesn't pile up, but do NOT add proration
+                $logIds[] = $log->id;
+                $this->log('info', 'Clearing past-cycle unbilled reconnection log without adding proration to current bill', [
+                    'account_no' => $account->account_no,
+                    'reconnection_log_id' => $log->id,
+                    'reconnection_date' => $reconDate->format('Y-m-d'),
+                    'current_cycle_start' => $currentCycleStart->format('Y-m-d')
+                ]);
+            } elseif ($reconDate->betweenIncluded($currentCycleStart, $currentCycleEnd)) {
+                // Log is within the current billing cycle
+                $logIds[] = $log->id;
 
-            if ($reconDate->betweenIncluded($cycleStart, $cycleEnd)) {
-                $activeDays = $reconDate->diffInDays($cycleEnd);
-                if ($activeDays > 0 && $activeDays < $totalDaysInCycle) {
-                    $dailyRate = $monthlyFee / $totalDaysInCycle;
-                    $proratedAmount = round($dailyRate * $activeDays, 2);
-                    
-                    $totalProrate += $proratedAmount;
-                    $logIds[] = $log->id;
+                if ($reconDate->gt($advanceGenCutoff)) {
+                    // Reconnection happened AFTER advance generation cutoff date (e.g., 24th > 23rd)
+                    $excessDays = $advanceGenCutoff->diffInDays($reconDate);
+                    if ($excessDays > 0 && $excessDays < $totalDaysInCycle) {
+                        $dailyRate = $monthlyFee / $totalDaysInCycle;
+                        $proratedAmount = round($dailyRate * $excessDays, 2);
+                        
+                        $totalProrate += $proratedAmount;
 
-                    if (!$proRateStart || $reconDate->lt(Carbon::parse($proRateStart))) {
-                        $proRateStart = $reconDate->format('Y-m-d');
+                        if (!$proRateStart || $reconDate->lt(Carbon::parse($proRateStart))) {
+                            $proRateStart = $reconDate->format('Y-m-d');
+                        }
+
+                        $this->log('info', 'Calculated excess days reconnection prorate past advance generation date', [
+                            'account_no' => $account->account_no,
+                            'reconnection_log_id' => $log->id,
+                            'reconnection_date' => $reconDate->format('Y-m-d'),
+                            'advance_gen_cutoff' => $advanceGenCutoff->format('Y-m-d'),
+                            'excess_days' => $excessDays,
+                            'daily_rate' => round($dailyRate, 2),
+                            'prorated_amount' => $proratedAmount
+                        ]);
                     }
-
-                    $this->log('info', 'Calculated mid-cycle reconnection prorate', [
+                } else {
+                    $this->log('info', 'Reconnection occurred on or before advance generation date; covered by standard plan rate', [
                         'account_no' => $account->account_no,
                         'reconnection_log_id' => $log->id,
                         'reconnection_date' => $reconDate->format('Y-m-d'),
-                        'cycle_end' => $cycleEnd->format('Y-m-d'),
-                        'active_days' => $activeDays,
-                        'daily_rate' => round($dailyRate, 2),
-                        'prorated_amount' => $proratedAmount
+                        'advance_gen_cutoff' => $advanceGenCutoff->format('Y-m-d')
                     ]);
                 }
             }
