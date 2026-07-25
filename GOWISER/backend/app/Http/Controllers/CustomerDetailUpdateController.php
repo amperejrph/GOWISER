@@ -127,7 +127,7 @@ class CustomerDetailUpdateController extends Controller
             $user = User::where('username', $accountNo)->first();
             if ($user) {
                 $userUpdate = [];
-                
+
                 // If contact number changed, update contact_number and password_hash.
                 // The portal password convention is the primary contact number, so it
                 // follows the number. contactNumberPrimary is required, so never null.
@@ -145,7 +145,7 @@ class CustomerDetailUpdateController extends Controller
                 if (!empty($userUpdate)) {
                     // A password_hash value here triggers the setPasswordHashAttribute mutator
                     $user->update($userUpdate);
-                    
+
                     Log::info('User account synced with updated customer details', [
                         'username' => $accountNo,
                         'updated_fields' => array_keys($userUpdate)
@@ -283,7 +283,7 @@ class CustomerDetailUpdateController extends Controller
             $billingStatusId = $billingAccount->billing_status_id;
             if ($request->has('billing_status_id') && !empty($validated['billing_status_id'])) {
                 if (is_numeric($validated['billing_status_id'])) {
-                    $billingStatusId = (int)$validated['billing_status_id'];
+                    $billingStatusId = (int) $validated['billing_status_id'];
                 } else {
                     // Attempt to find by name in the database
                     $dbStatus = DB::table('billing_status')->where('status_name', $validated['billing_status_id'])->first();
@@ -440,10 +440,10 @@ class CustomerDetailUpdateController extends Controller
             DB::beginTransaction();
 
             $billingAccount = BillingAccount::where('account_no', $accountNo)->firstOrFail();
-            
+
             // Get or create technical details
             $technicalDetail = TechnicalDetail::where('account_id', $billingAccount->id)->first();
-            
+
             $isNewTechnicalDetail = false;
             if (!$technicalDetail) {
                 $isNewTechnicalDetail = true;
@@ -511,11 +511,11 @@ class CustomerDetailUpdateController extends Controller
             $technicalDetail->vlan = $validated['vlan'] ?? $technicalDetail->vlan;
             $technicalDetail->lcpnap = $lcpnap;
             $technicalDetail->usage_type = $validated['usage_type'] ?? $technicalDetail->usage_type;
-            
+
             if ($request->has('updatedBy')) {
                 $technicalDetail->updated_by = $request->input('updatedBy');
             }
-            
+
             $technicalDetail->save();
 
             // Sync username to online_status table if it changed
@@ -621,10 +621,10 @@ class CustomerDetailUpdateController extends Controller
                 // persisted to the queue so the cron can replay the exact same operation.
                 $credParams = [
                     'accountNumber' => $accountNo,
-                    'username'      => $oldUsername,       // RADIUS still has the OLD name
-                    'newUsername'   => $newUsernameInput,  // the target name
-                    'newPassword'   => null,               // username-only change, keep password
-                    'updatedBy'     => $request->input('updatedBy') ?: 'System',
+                    'username' => $oldUsername,       // RADIUS still has the OLD name
+                    'newUsername' => $newUsernameInput,  // the target name
+                    'newPassword' => null,               // username-only change, keep password
+                    'updatedBy' => $request->input('updatedBy') ?: 'System',
                 ];
 
                 $radiusFailedError = null;
@@ -649,13 +649,13 @@ class CustomerDetailUpdateController extends Controller
                 if ($radiusFailedError !== null) {
                     $queuedId = \App\Services\RadiusQueueService::queue([
                         'organization_id' => $billingAccount->organization_id ?? null,
-                        'source_type'     => 'customer_detail_update',
-                        'source_id'       => $billingAccount->id,
-                        'account_no'      => $accountNo,
-                        'operation'       => 'update_credentials',
-                        'params'          => $credParams,
-                        'last_error'      => $radiusFailedError,
-                        'created_by'      => $credParams['updatedBy'],
+                        'source_type' => 'customer_detail_update',
+                        'source_id' => $billingAccount->id,
+                        'account_no' => $accountNo,
+                        'operation' => 'update_credentials',
+                        'params' => $credParams,
+                        'last_error' => $radiusFailedError,
+                        'created_by' => $credParams['updatedBy'],
                     ]);
 
                     \Log::channel('radiusrelated')->error('[CUSTOMER DETAIL RADIUS UPDATE FAILED - QUEUED] Account: ' . $accountNo . ' - Old User: ' . $oldUsername . ' - New User: ' . $newUsernameInput . ' - Error: ' . $radiusFailedError);

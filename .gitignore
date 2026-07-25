@@ -43,3 +43,9 @@ yarn-error.log*
 
 # Laravel specific
 storage/*.key
+MOBILEAPP/frontend/google-services.json
+extensive_system_architecture_and_flows.md
+full_database_tables_and_columns_inventory.md
+full_features_and_automation_documentation.md
+system_architecture_reference.md
+user_manual_and_operations_guide.md

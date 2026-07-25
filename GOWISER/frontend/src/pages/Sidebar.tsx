@@ -167,8 +167,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange, onLog
       allowedRoles: ['superadmin'],
       children: [
         { id: 'user-management', label: 'Users Management', icon: User, allowedRoles: ['superadmin'] },
-        { id: 'tech-users', label: 'Tech Users', icon: Wrench, allowedRoles: ['superadmin'] },
-        { id: 'team-agent', label: 'Team Agents', icon: Users, allowedRoles: ['superadmin'] }
+        { id: 'tech-users', label: 'Tech Users', icon: Wrench, allowedRoles: ['superadmin'] }
         // { id: 'organization', label: 'Organization', icon: Building, allowedRoles: ['superadmin'] },
         // { id: 'roles', label: 'Roles', icon: Shield, allowedRoles: ['superadmin'] }
       ]
@@ -316,18 +315,19 @@ const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange, onLog
         if (normalizedRole === 'admin-only') return normalizedUserRole === 'administrator' || String(roleId) === '1';
         if (normalizedRole === 'superadmin') return normalizedUserRole === 'superadmin' || String(roleId) === '7';
         if (normalizedRole === 'headtech') return normalizedUserRole === 'headtech' || String(roleId) === '8';
-        if (normalizedRole === 'osp') return normalizedUserRole === 'Osp'.toLowerCase() || String(roleId) === '6';
+        if (normalizedRole === 'osp') return normalizedRole === 'Osp'.toLowerCase() || String(roleId) === '6';
         if (normalizedRole === 'agent') return normalizedUserRole === 'agent' || String(roleId) === '4';
         if (normalizedRole === 'inventorystaff') return isInventoryStaff;
         return normalizedRole === normalizedUserRole;
       });
 
-      if (hasAccess && item.children) {
-        item.children = filterMenuByRole(item.children);
-        if (item.children.length === 0) return false;
-      }
-
       return hasAccess;
+    }).map(item => {
+      if (item.children && item.children.length > 0) {
+        const filteredChildren = filterMenuByRole(item.children);
+        return { ...item, children: filteredChildren };
+      }
+      return item;
     });
   };
 
@@ -342,12 +342,22 @@ const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange, onLog
   // Flatten menu items for collapsed icon-only view
   const flattenForCollapsed = (items: MenuItem[]): MenuItem[] => {
     const result: MenuItem[] = [];
+    const seenIds = new Set<string>();
+
     items.forEach(item => {
       if (item.children && item.children.length > 0) {
         // Push children directly (skip the parent group header)
-        item.children.forEach(child => result.push(child));
+        item.children.forEach(child => {
+          if (!seenIds.has(child.id)) {
+            seenIds.add(child.id);
+            result.push(child);
+          }
+        });
       } else {
-        result.push(item);
+        if (!seenIds.has(item.id)) {
+          seenIds.add(item.id);
+          result.push(item);
+        }
       }
     });
     return result;
